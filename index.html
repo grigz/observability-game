@@ -142,7 +142,7 @@
         
         <!-- Log Panel -->
         <footer class="w-full mt-4">
-            <div id="log-panel" class="w-full h-32 bg-black/50 rounded-lg p-4 font-mono text-sm overflow-y-auto">
+            <div id="log-panel" class="w-full h-96 bg-black/50 rounded-lg p-4 font-mono text-sm overflow-y-auto">
                 <p>> System Initializing...</p>
             </div>
         </footer>
@@ -532,49 +532,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- EVENT LISTENERS ---
-    roleOptionsContainer.addEventListener('click', e => {
-        if(e.target.closest('.role-option')) {
-            const roleId = e.target.closest('.role-option').dataset.id;
-            const role = ROLES.find(r => r.id === roleId);
-            startGame(role);
-        }
-    });
-
-    function renderRoleOptions() {
-        roleOptionsContainer.innerHTML = '';
-        ROLES.forEach(role => {
-            const el = document.createElement('div');
-            el.className = 'role-option p-4 border-2 border-gray-600 rounded-lg hover:border-red-500 hover:bg-gray-700 cursor-pointer transition-all';
-            el.dataset.id = role.id;
-            el.innerHTML = `
-                <h3 class="text-xl font-bold text-red-400 mb-2">${role.name}</h3>
-                <p class="text-sm text-gray-300">${role.desc}</p>
-            `;
-            roleOptionsContainer.appendChild(el);
-        });
-    }
-    
-    remediateBtn.addEventListener('click', remediate);
-    restartGameBtn.addEventListener('click', init);
-    rulesBtn.addEventListener('click', () => {
-        modalContainer.classList.remove('hidden');
-        rulesModal.classList.remove('hidden');
-        continueToRolesBtn.classList.add('hidden');
-        closeRulesBtn.classList.remove('hidden');
-    });
-    closeRulesBtn.addEventListener('click', () => {
-        modalContainer.classList.add('hidden');
-        rulesModal.classList.add('hidden');
-    });
-    continueToRolesBtn.addEventListener('click', () => {
-        rulesModal.classList.add('hidden');
-        roleSelectionModal.classList.remove('hidden');
-    });
-
-    // --- INITIALIZE ---
-    init();
-});
-</script>
-
-</body>
-</html>
+    roleOptionsContainer.add
