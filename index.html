@@ -195,7 +195,7 @@
                      <p class="mt-8 text-sm italic text-gray-400 text-center">Created by Dan Bettinger and Gemini</p>
                 </div>
                  <div class="mt-8 text-center">
-                    <button id="continue-to-roles-btn" class="p-4 rounded-lg bg-red-600 hover:bg-red-500 text-lg w-1/2 hidden">Continue</button>
+                    <button id="continue-to-roles-btn" class="p-4 rounded-lg bg-red-600 hover:bg-red-500 text-lg w-12 hidden">Continue</button>
                 </div>
             </div>
         </div>
@@ -342,21 +342,23 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.keys(SERVICES).forEach(key => {
             const service = SERVICES[key];
             const nodeEl = document.createElement('div');
-            nodeEl.className = 'service-node';
+            
+            // Build class list as an array to prevent errors
+            const classes = ['service-node'];
+            if (state.symptomaticNodes.includes(key)) {
+                classes.push('status-symptom');
+            } else {
+                classes.push('status-healthy');
+            }
+            if (state.selectedNode === key) {
+                classes.push('status-revealed');
+            }
+            nodeEl.className = classes.join(' ');
+
             nodeEl.style.left = `${service.x}%`;
             nodeEl.style.top = `${service.y}%`;
             nodeEl.dataset.id = key;
             
-            // FIX: Apply classes one by one to avoid InvalidCharacterError
-            if (state.symptomaticNodes.includes(key)) {
-                nodeEl.classList.add('status-symptom');
-            } else {
-                nodeEl.classList.add('status-healthy');
-            }
-            if (state.selectedNode === key) {
-                nodeEl.classList.add('status-revealed');
-            }
-
             nodeEl.innerHTML = `<div class="font-bold text-sm">${service.name}</div>`;
             nodeEl.addEventListener('click', () => onNodeClick(key));
             graphContainer.appendChild(nodeEl);
@@ -532,4 +534,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- EVENT LISTENERS ---
-    roleOptionsContainer.add
+    roleOptionsContainer.addEventListener('click', e => {
+        if(e.target.closest('.role-option')) {
+            const roleId = e.target.closest('.role-option').dataset.id;
+            const role = ROLES.find(r => r.id === roleId);
+            startGame(role);
+        }
+    });
+
+    function renderRoleOptions() {
+        roleOptionsContainer.innerHTML = '';
+        ROLES.forEach(role => {
+            const el = document.createElement('div');
+            el.className = 'role-option p-4 border-2 border-gray-600 rounded-lg hover:border-red-500 hover:bg-gray-700 cursor-pointer transition-all';
+            el.dataset.id = role.id;
+            el.innerHTML = `
+                <h3 class="text-xl font-bold text-red-400 mb-2">${role.name}</h3>
+                <p class="text-sm text-gray-300">${role.desc}</p>
+            `;
+            roleOptionsContainer.appendChild(el);
+        });
+    }
+    
+    remediateBtn.addEventListener('click', remediate);
+    restartGameBtn.addEventListener('click', init);
+    rulesBtn.addEventListener('click', () => {
+        modalContainer.classList.remove('hidden');
+        rulesModal.classList.remove('hidden');
+        continueToRolesBtn.classList.add('hidden');
+        closeRulesBtn.classList.remove('hidden');
+    });
+    closeRulesBtn.addEventListener('click', () => {
+        modalContainer.classList.add('hidden');
+        rulesModal.classList.add('hidden');
+    });
+    continueToRolesBtn.addEventListener('click', () => {
+        rulesModal.classList.add('hidden');
+        roleSelectionModal.classList.remove('hidden');
+    });
+
+    // --- INITIALIZE ---
+    init();
+});
+</script>
+
+</body>
+</html>
