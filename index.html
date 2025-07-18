@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Observability Outage: The Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700;900&family=Red+Hat+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Red Hat Display', sans-serif;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+        }
+        .font-mono {
+            font-family: 'Red Hat Mono', monospace;
+        }
+        #system-graph {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+            background-image: radial-gradient(circle, #333 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .service-node {
+            position: absolute;
+            width: 120px;
+            height: 80px;
+            border: 2px solid #555;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: #2d3748;
+        }
+        .service-node:hover {
+            transform: scale(1.1);
+            border-color: #ee0000;
+        }
+        .service-node.status-healthy { background-color: #2d3748; border-color: #4a5568; }
+        .service-node.status-symptom { background-color: #b7791f; border-color: #f6e05e; animation: pulse-yellow 2s infinite; }
+        .service-node.status-error { background-color: #c53030; border-color: #f56565; animation: pulse-red 1s infinite; }
+        .service-node.status-revealed { border-width: 4px; }
+
+        @keyframes pulse-yellow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(246, 224, 94, 0.4); }
+            50% { box-shadow: 0 0 10px 5px rgba(246, 224, 94, 0); }
+        }
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 101, 101, 0.7); }
+            50% { box-shadow: 0 0 12px 8px rgba(245, 101, 101, 0); }
+        }
+
+        .connection-line {
+            position: absolute;
+            background-color: #4a5568;
+            height: 2px;
+            transform-origin: 0 0;
+            z-index: -1;
+            transition: background-color 0.5s;
+        }
+        .connection-line.trace-path {
+            background-color: #68d391; /* green */
+            height: 4px;
+            z-index: 10;
+        }
+        .connection-line.trace-path.failed {
+            background-color: #fc8181; /* red */
+        }
+
+        .btn-tool {
+            transition: all 0.2s ease;
+        }
+        .btn-tool.selected {
+            background-color: #ee0000;
+            color: white;
+            transform: scale(1.05);
+        }
+        .btn-tool:disabled {
+            background-color: #4a5568;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .modal-content {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-gray-100">
+
+    <div id="game-container" class="min-h-screen w-full p-4 md:p-6 flex flex-col hidden">
+        <!-- Header -->
+        <header class="w-full flex flex-col md:flex-row justify-between items-center mb-4 space-y-2 md:space-y-0">
+            <h1 class="text-3xl font-black text-red-500 tracking-wider">Observability Outage</h1>
+            <div class="flex items-center space-x-6">
+                <div class="text-center">
+                    <div class="font-bold text-lg">Round</div>
+                    <div id="round-counter" class="text-2xl font-mono">1</div>
+                </div>
+                <div class="text-center">
+                    <div class="font-bold text-lg">Score</div>
+                    <div id="score-counter" class="text-2xl font-mono">0</div>
+                </div>
+                <div class="w-48 text-center">
+                    <div class="font-bold text-lg">Business Impact</div>
+                    <div class="w-full bg-gray-700 rounded-full h-4 mt-1">
+                        <div id="impact-bar" class="bg-red-600 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+                <button id="rules-btn" class="px-4 py-2 rounded-lg bg-gray-700 hover:bg-red-600 transition-colors font-bold">Rules</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- System Graph -->
+            <main id="system-graph-container" class="lg:col-span-3 bg-gray-900 rounded-lg p-4 relative">
+                <div id="system-graph">
+                    <!-- Nodes and lines will be injected by JS -->
+                </div>
+            </main>
+
+            <!-- Control Panel -->
+            <aside class="lg:col-span-1 bg-gray-700 p-4 rounded-lg flex flex-col">
+                <div id="player-role-display" class="mb-4 text-center"></div>
+                <h2 class="text-xl font-bold text-center border-b border-red-500 pb-2 mb-4">Actions</h2>
+                <div id="actions-panel" class="space-y-3">
+                    <!-- Tool buttons will be injected here -->
+                </div>
+                <div class="mt-auto pt-4">
+                     <button id="remediate-btn" class="w-full p-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold" disabled>Remediate Selected</button>
+                </div>
+            </aside>
+        </div>
+        
+        <!-- Log Panel -->
+        <footer class="w-full mt-4">
+            <div id="log-panel" class="w-full h-32 bg-black/50 rounded-lg p-4 font-mono text-sm overflow-y-auto">
+                <p>> System Initializing...</p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 hidden">
+        <div id="role-selection-modal" class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center max-w-4xl hidden">
+            <h1 class="text-4xl font-black text-red-500 mb-2">Welcome to Observability Outage</h1>
+            <p class="text-gray-300 mb-8">A critical outage is affecting the system. Use your observability tools to find the root cause before business impact becomes critical.</p>
+            <h2 class="text-2xl font-bold mb-6">Choose Your Role:</h2>
+            <div id="role-options" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+        </div>
+
+        <div id="game-over-modal" class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center max-w-lg hidden">
+            <h1 id="game-over-title" class="text-4xl font-black mb-4"></h1>
+            <p id="game-over-message" class="text-gray-300 mb-6"></p>
+            <p class="text-2xl font-bold mb-6">Final Score: <span id="final-score">0</span></p>
+            <button id="restart-game-btn" class="p-4 rounded-lg bg-red-600 hover:bg-red-500 text-lg w-full">Play Again</button>
+        </div>
+
+        <div id="rules-modal" class="bg-gray-800 p-8 rounded-lg shadow-2xl max-w-2xl hidden">
+            <div class="modal-content text-gray-300">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-black text-red-500">How to Play</h2>
+                     <button id="close-rules-btn" class="p-2 rounded-full hover:bg-gray-700">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="space-y-4 text-left">
+                    <h3 class="text-xl font-bold text-red-400">Objective</h3>
+                    <p>Find and fix the root cause of the system outage for each round. A new outage occurs each round. Score as many points as you can before the <strong>Business Impact</strong> meter fills up.</p>
+                    
+                    <h3 class="text-xl font-bold text-red-400">Your Role</h3>
+                    <p>Your chosen role gives you a different number of tool uses per round, specializing you in certain areas of observability.</p>
+
+                    <h3 class="text-xl font-bold text-red-400">Gameplay</h3>
+                    <ol class="list-decimal list-inside ml-4 space-y-2">
+                        <li><strong>Observe Symptoms:</strong> At the start of a round, some services will show symptoms (yellow). The root cause is hidden.</li>
+                        <li><strong>Use Tools:</strong> Click a tool (Metrics, Logs, Trace) from the right panel, then click on a service node in the graph to use it. This consumes one use for that tool.</li>
+                        <li><strong>Deduce the Cause:</strong> Use the clues from your tools to figure out which service is the true source of the failure.
+                            <ul class="list-disc list-inside ml-4">
+                                <li><strong>Metrics:</strong> Reveal raw numbers on a service. Good for finding which services are unhealthy.</li>
+                                <li><strong>Logs:</strong> Give specific error messages, often pointing to a connected service.</li>
+                                <li><strong>Traces:</strong> Show the exact path of a request, highlighting the point of failure.</li>
+                            </ul>
+                        </li>
+                        <li><strong>Remediate:</strong> Once you think you've found the root cause, select the node and click the "Remediate" button. If you're right, you score points and a new round begins. If you're wrong, you take a big hit to Business Impact!</li>
+                    </ol>
+                     <p class="mt-8 text-sm italic text-gray-400 text-center">Created by Dan Bettinger and Gemini</p>
+                </div>
+                 <div class="mt-8 text-center">
+                    <button id="continue-to-roles-btn" class="p-4 rounded-lg bg-red-600 hover:bg-red-500 text-lg w-1/2 hidden">Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- DATA & CONFIG ---
+    const SERVICES = {
+        api_gateway: { name: 'API Gateway', x: 50, y: 5, logs: "Receiving high rate of 503 errors from upstream.", connections: ['user_service', 'auth_service'] },
+        user_service: { name: 'User Service', x: 20, y: 35, logs: "Failed to fetch user profiles.", connections: ['database'] },
+        auth_service: { name: 'Auth Service', x: 80, y: 35, logs: "Authentication successful, but token generation failed.", connections: ['cache'] },
+        database: { name: 'Database', x: 20, y: 75, logs: "FATAL: Too many connections.", connections: [] },
+        cache: { name: 'Cache', x: 80, y: 75, logs: "ERROR: Cache memory limit exceeded.", connections: [] }
+    };
+
+    const ROLES = [
+        { id: 'sre', name: 'SRE', desc: 'Specializes in high-level monitoring.', tools: { METRICS: 3, LOGS: 1, TRACES: 1 } },
+        { id: 'dev', name: 'Developer', desc: 'Specializes in deep-dive debugging.', tools: { METRICS: 1, LOGS: 3, TRACES: 2 } },
+        { id: 'netops', name: 'Network Ops', desc: 'A generalist approach.', tools: { METRICS: 2, LOGS: 2, TRACES: 1 } },
+        { id: 'itdm', name: 'VP of App Dev', desc: 'Can authorize more traces.', tools: { METRICS: 2, LOGS: 1, TRACES: 3 } }
+    ];
+
+    // --- DOM ELEMENTS ---
+    const gameContainer = document.getElementById('game-container');
+    const modalContainer = document.getElementById('modal-container');
+    const roleSelectionModal = document.getElementById('role-selection-modal');
+    const gameOverModal = document.getElementById('game-over-modal');
+    const rulesModal = document.getElementById('rules-modal');
+    const roleOptionsContainer = document.getElementById('role-options');
+    const roundCounter = document.getElementById('round-counter');
+    const scoreCounter = document.getElementById('score-counter');
+    const impactBar = document.getElementById('impact-bar');
+    const graphContainer = document.getElementById('system-graph');
+    const actionsPanel = document.getElementById('actions-panel');
+    const remediateBtn = document.getElementById('remediate-btn');
+    const logPanel = document.getElementById('log-panel');
+    const playerRoleDisplay = document.getElementById('player-role-display');
+    const rulesBtn = document.getElementById('rules-btn');
+    const closeRulesBtn = document.getElementById('close-rules-btn');
+    const continueToRolesBtn = document.getElementById('continue-to-roles-btn');
+    const restartGameBtn = document.getElementById('restart-game-btn');
+
+    // --- GAME STATE ---
+    let state = {};
+
+    function initState() {
+        state = {
+            playerRole: null,
+            round: 0,
+            score: 0,
+            businessImpact: 0,
+            rootCause: null,
+            symptomaticNodes: [],
+            selectedTool: null,
+            selectedNode: null,
+            toolUses: {},
+            gameOver: false
+        };
+    }
+
+    // --- GAME FLOW ---
+    function init() {
+        initState();
+        modalContainer.classList.remove('hidden');
+        rulesModal.classList.remove('hidden');
+        continueToRolesBtn.classList.remove('hidden');
+        roleSelectionModal.classList.add('hidden');
+        gameOverModal.classList.add('hidden');
+        gameContainer.classList.add('hidden');
+        renderRoleOptions();
+    }
+
+    function startGame(role) {
+        state.playerRole = role;
+        modalContainer.classList.add('hidden');
+        rulesModal.classList.add('hidden');
+        gameContainer.classList.remove('hidden');
+        logMessage('Game started. Awaiting first incident report...');
+        setTimeout(startNewRound, 1000);
+    }
+    
+    function startNewRound() {
+        state.round++;
+        state.selectedTool = null;
+        state.selectedNode = null;
+        state.toolUses = { ...state.playerRole.tools };
+        
+        // Select a new root cause
+        const serviceKeys = Object.keys(SERVICES);
+        state.rootCause = serviceKeys[Math.floor(Math.random() * serviceKeys.length)];
+        
+        // Determine symptomatic nodes
+        state.symptomaticNodes = [];
+        Object.keys(SERVICES).forEach(key => {
+            if (SERVICES[key].connections.includes(state.rootCause)) {
+                state.symptomaticNodes.push(key);
+            }
+        });
+        // Ensure there's at least one symptom
+        if (state.symptomaticNodes.length === 0 && SERVICES[state.rootCause].connections.length > 0) {
+           state.symptomaticNodes.push(SERVICES[state.rootCause].connections[0]);
+        }
+        
+        logMessage(`--- Round ${state.round}: Anomaly Detected! ---`, 'text-yellow-400');
+        logMessage(`System showing signs of instability. Start your investigation.`);
+        renderAll();
+    }
+
+    // --- RENDER FUNCTIONS ---
+    function renderAll() {
+        if (state.gameOver) return;
+        renderHeader();
+        renderGraph();
+        renderActions();
+        renderPlayerRole();
+        remediateBtn.disabled = !state.selectedNode;
+    }
+    
+    function renderHeader() {
+        roundCounter.textContent = state.round;
+        scoreCounter.textContent = state.score;
+        impactBar.style.width = `${state.businessImpact}%`;
+    }
+
+    function renderPlayerRole() {
+        playerRoleDisplay.innerHTML = `
+            <h3 class="text-lg font-bold text-red-400">${state.playerRole.name}</h3>
+            <p class="text-xs text-gray-400">${state.playerRole.desc}</p>
+        `;
+    }
+
+    function renderGraph() {
+        graphContainer.innerHTML = '';
+        // Draw lines first
+        Object.keys(SERVICES).forEach(key => {
+            const service = SERVICES[key];
+            service.connections.forEach(connKey => {
+                const connService = SERVICES[connKey];
+                drawLine(service, connService);
+            });
+        });
+        // Draw nodes
+        Object.keys(SERVICES).forEach(key => {
+            const service = SERVICES[key];
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'service-node';
+            nodeEl.style.left = `${service.x}%`;
+            nodeEl.style.top = `${service.y}%`;
+            nodeEl.dataset.id = key;
+            
+            // FIX: Apply classes one by one to avoid InvalidCharacterError
+            if (state.symptomaticNodes.includes(key)) {
+                nodeEl.classList.add('status-symptom');
+            } else {
+                nodeEl.classList.add('status-healthy');
+            }
+            if (state.selectedNode === key) {
+                nodeEl.classList.add('status-revealed');
+            }
+
+            nodeEl.innerHTML = `<div class="font-bold text-sm">${service.name}</div>`;
+            nodeEl.addEventListener('click', () => onNodeClick(key));
+            graphContainer.appendChild(nodeEl);
+        });
+    }
+    
+    function drawLine(fromService, toService) {
+        const fromEl = { x: fromService.x + 6, y: fromService.y + 4 }; // Center of node approx
+        const toEl = { x: toService.x + 6, y: toService.y + 4 };
+        
+        const graphRect = graphContainer.getBoundingClientRect();
+        const x1 = (fromEl.x / 100) * graphRect.width;
+        const y1 = (fromEl.y / 100) * graphRect.height;
+        const x2 = (toEl.x / 100) * graphRect.width;
+        const y2 = (toEl.y / 100) * graphRect.height;
+
+        const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+
+        const line = document.createElement('div');
+        line.className = 'connection-line';
+        line.style.width = `${length}px`;
+        line.style.transform = `rotate(${angle}deg)`;
+        line.style.left = `${x1}px`;
+        line.style.top = `${y1}px`;
+        line.dataset.from = Object.keys(SERVICES).find(key => SERVICES[key] === fromService);
+        line.dataset.to = Object.keys(SERVICES).find(key => SERVICES[key] === toService);
+        graphContainer.appendChild(line);
+    }
+
+    function renderActions() {
+        actionsPanel.innerHTML = '';
+        Object.keys(state.toolUses).forEach(tool => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-tool w-full p-3 rounded-lg bg-gray-600 hover:bg-gray-500 font-bold';
+            if (state.selectedTool === tool) {
+                btn.classList.add('selected');
+            }
+            btn.textContent = `${tool} (${state.toolUses[tool]})`;
+            btn.dataset.tool = tool;
+            btn.disabled = state.toolUses[tool] <= 0;
+            btn.addEventListener('click', () => onToolClick(tool));
+            actionsPanel.appendChild(btn);
+        });
+    }
+    
+    function logMessage(message, style = 'text-gray-300') {
+        const p = document.createElement('p');
+        p.className = style;
+        p.textContent = `> ${message}`;
+        logPanel.appendChild(p);
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
+
+    // --- ACTIONS & LOGIC ---
+    function onToolClick(tool) {
+        state.selectedTool = tool;
+        logMessage(`Selected tool: ${tool}. Click on a service node to use.`);
+        renderActions();
+    }
+
+    function onNodeClick(nodeId) {
+        state.selectedNode = nodeId;
+        if (state.selectedTool && state.toolUses[state.selectedTool] > 0) {
+            useTool(state.selectedTool, nodeId);
+        } else {
+            logMessage(`Selected service: ${SERVICES[nodeId].name}. Choose a tool to investigate.`);
+        }
+        renderAll();
+    }
+
+    function useTool(tool, nodeId) {
+        state.toolUses[tool]--;
+        const service = SERVICES[nodeId];
+        let message = '';
+
+        switch(tool) {
+            case 'METRICS':
+                const isSymptom = state.symptomaticNodes.includes(nodeId);
+                const isCause = state.rootCause === nodeId;
+                let latency = isSymptom || isCause ? Math.floor(1000 + Math.random() * 1000) : Math.floor(50 + Math.random() * 50);
+                let errors = isSymptom || isCause ? Math.floor(5 + Math.random() * 10) : 0;
+                message = `METRICS for ${service.name}: Latency ${latency}ms, Error Rate ${errors}%.`;
+                break;
+            case 'LOGS':
+                if (state.symptomaticNodes.includes(nodeId) || state.rootCause === nodeId) {
+                    message = `LOGS for ${service.name}: ${service.logs}`;
+                } else {
+                    message = `LOGS for ${service.name}: System nominal. No errors reported.`;
+                }
+                break;
+            case 'TRACES':
+                message = `TRACES: Running trace from API Gateway...`;
+                runTrace();
+                break;
+        }
+        logMessage(message, 'text-green-400');
+        state.selectedTool = null;
+    }
+    
+    function runTrace() {
+        let currentNodeKey = 'api_gateway';
+        let path = [currentNodeKey];
+        let depth = 0;
+        
+        while(currentNodeKey !== state.rootCause && depth < 5) {
+            const connections = SERVICES[currentNodeKey].connections;
+            if (connections.length === 0) break;
+            // Simple trace logic: just follows the first connection path
+            const nextNode = connections.find(c => state.symptomaticNodes.includes(c) || c === state.rootCause) || connections[0];
+            path.push(nextNode);
+            currentNodeKey = nextNode;
+            depth++;
+        }
+
+        path.forEach((nodeKey, i) => {
+            if (i < path.length - 1) {
+                const from = nodeKey;
+                const to = path[i+1];
+                const lineEl = document.querySelector(`.connection-line[data-from="${from}"][data-to="${to}"]`);
+                if (lineEl) {
+                    setTimeout(() => {
+                        lineEl.classList.add('trace-path');
+                        if (to === state.rootCause) {
+                            lineEl.classList.add('failed');
+                        }
+                    }, i * 300);
+                }
+            }
+        });
+
+        setTimeout(() => {
+            logMessage(`TRACE COMPLETE: Failure point detected at or after ${SERVICES[currentNodeKey].name}.`, 'text-purple-400');
+            document.querySelectorAll('.trace-path').forEach(el => el.classList.remove('trace-path', 'failed'));
+        }, path.length * 300 + 500);
+    }
+
+    function remediate() {
+        if (!state.selectedNode) return;
+        
+        if (state.selectedNode === state.rootCause) {
+            const points = 100 - (Object.values(state.toolUses).reduce((a, b) => a + b, 0) * 10);
+            state.score += points;
+            logMessage(`SUCCESS! ${SERVICES[state.rootCause].name} was the root cause. +${points} points.`, 'text-green-400');
+            document.querySelector(`[data-id="${state.rootCause}"]`).classList.add('status-error', 'status-revealed');
+            setTimeout(startNewRound, 2000);
+        } else {
+            state.businessImpact += 25;
+            logMessage(`FAILURE! ${SERVICES[state.selectedNode].name} was not the root cause. Major business impact!`, 'text-red-400');
+            if (state.businessImpact >= 100) {
+                gameOver(false);
+            }
+        }
+        renderAll();
+    }
+    
+    function gameOver(isWin) {
+        state.gameOver = true;
+        modalContainer.classList.remove('hidden');
+        gameOverModal.classList.remove('hidden');
+        
+        const titleEl = document.getElementById('game-over-title');
+        const msgEl = document.getElementById('game-over-message');
+        
+        if (isWin) { // This condition is currently not reachable, but good for future extension
+             titleEl.textContent = "System Stabilized!";
+             msgEl.textContent = "You've managed to keep the system afloat!";
+        } else {
+             titleEl.textContent = "Critical Impact!";
+             msgEl.textContent = `The system went down after ${state.round} rounds. Your investigation took too long.`;
+        }
+        document.getElementById('final-score').textContent = state.score;
+    }
+
+    // --- EVENT LISTENERS ---
+    roleOptionsContainer.addEventListener('click', e => {
+        if(e.target.closest('.role-option')) {
+            const roleId = e.target.closest('.role-option').dataset.id;
+            const role = ROLES.find(r => r.id === roleId);
+            startGame(role);
+        }
+    });
+
+    function renderRoleOptions() {
+        roleOptionsContainer.innerHTML = '';
+        ROLES.forEach(role => {
+            const el = document.createElement('div');
+            el.className = 'role-option p-4 border-2 border-gray-600 rounded-lg hover:border-red-500 hover:bg-gray-700 cursor-pointer transition-all';
+            el.dataset.id = role.id;
+            el.innerHTML = `
+                <h3 class="text-xl font-bold text-red-400 mb-2">${role.name}</h3>
+                <p class="text-sm text-gray-300">${role.desc}</p>
+            `;
+            roleOptionsContainer.appendChild(el);
+        });
+    }
+    
+    remediateBtn.addEventListener('click', remediate);
+    restartGameBtn.addEventListener('click', init);
+    rulesBtn.addEventListener('click', () => {
+        modalContainer.classList.remove('hidden');
+        rulesModal.classList.remove('hidden');
+        continueToRolesBtn.classList.add('hidden');
+        closeRulesBtn.classList.remove('hidden');
+    });
+    closeRulesBtn.addEventListener('click', () => {
+        modalContainer.classList.add('hidden');
+        rulesModal.classList.add('hidden');
+    });
+    continueToRolesBtn.addEventListener('click', () => {
+        rulesModal.classList.add('hidden');
+        roleSelectionModal.classList.remove('hidden');
+    });
+
+    // --- INITIALIZE ---
+    init();
+});
+</script>
+
+</body>
+</html>
