@@ -104,6 +104,10 @@
                     <div class="font-bold text-lg">Round</div>
                     <div id="round-counter" class="text-2xl font-mono">1</div>
                 </div>
+                 <div class="text-center">
+                    <div class="font-bold text-lg">Time Remaining</div>
+                    <div id="time-remaining" class="text-2xl font-mono">60</div>
+                </div>
                 <div class="text-center">
                     <div class="font-bold text-lg">Score</div>
                     <div id="score-counter" class="text-2xl font-mono">0</div>
@@ -130,11 +134,12 @@
             <!-- Control Panel -->
             <aside class="lg:col-span-1 bg-gray-700 p-4 rounded-lg flex flex-col">
                 <div id="player-role-display" class="mb-4 text-center"></div>
-                <h2 class="text-xl font-bold text-center border-b border-red-500 pb-2 mb-4">Actions</h2>
+                <h2 class="text-xl font-bold text-center border-b border-red-500 pb-2 mb-4">Tools</h2>
                 <div id="actions-panel" class="space-y-3">
                     <!-- Tool buttons will be injected here -->
                 </div>
-                <div class="mt-auto pt-4">
+                <div class="mt-auto pt-4 space-y-3">
+                     <button id="next-shift-btn" class="w-full p-3 rounded-lg bg-yellow-600 hover:bg-yellow-500 font-bold hidden">Wait for Next Shift (-20 Impact)</button>
                      <button id="remediate-btn" class="w-full p-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold" disabled>Remediate Selected</button>
                 </div>
             </aside>
@@ -143,7 +148,7 @@
         <!-- Log Panel -->
         <footer class="w-full mt-4">
             <div id="log-panel" class="w-full h-80 bg-black/50 rounded-lg p-4 font-mono text-sm overflow-y-auto">
-                <p>> System Initializing...</p>
+                
             </div>
         </footer>
     </div>
@@ -174,23 +179,22 @@
                 </div>
                 <div class="space-y-4 text-left">
                     <h3 class="text-xl font-bold text-red-400">Objective</h3>
-                    <p>Find and fix the root cause of the system outage for each round. A new outage occurs each round. Score as many points as you can before the <strong>Business Impact</strong> meter fills up.</p>
+                    <p>Find and fix the root cause of the system outage for each round. Score as many points as you can before the <strong>Business Impact</strong> meter fills up.</p>
                     
-                    <h3 class="text-xl font-bold text-red-400">Your Role</h3>
-                    <p>Your chosen role gives you a different number of tool uses per round, specializing you in certain areas of observability.</p>
+                    <h3 class="text-xl font-bold text-red-400">Time & Actions</h3>
+                    <p>Each round, you have a limited budget of <strong>Investigation Time</strong>. Each tool you use costs time. If you run out of time, you can wait for the next shift, but this will increase Business Impact!</p>
 
                     <h3 class="text-xl font-bold text-red-400">Gameplay</h3>
                     <ol class="list-decimal list-inside ml-4 space-y-2">
-                        <li><strong>Observe Symptoms:</strong> At the start of a round, some services will show symptoms (yellow). The root cause is hidden.</li>
-                        <li><strong>Use Tools:</strong> Click a tool (Metrics, Logs, Trace) from the right panel, then click on a service node in the graph to use it. This consumes one use for that tool.</li>
-                        <li><strong>Deduce the Cause:</strong> Use the clues from your tools to figure out which service is the true source of the failure.
+                        <li><strong>Observe Symptoms:</strong> At the start of a round, some services will show symptoms (yellow). Beware of <strong>red herrings</strong>—symptoms that aren't related to the real problem!</li>
+                        <li><strong>Use Tools:</strong> Click a tool, then click a service node.
                             <ul class="list-disc list-inside ml-4">
-                                <li><strong>Metrics:</strong> Reveal raw numbers on a service. Good for finding which services are unhealthy.</li>
-                                <li><strong>Logs:</strong> Give specific error messages, often pointing to a connected service.</li>
-                                <li><strong>Traces:</strong> Show the exact path of a request, highlighting the point of failure.</li>
+                                <li><strong>Metrics (Low Cost):</strong> Reveal raw health numbers. Good for quick scans.</li>
+                                <li><strong>Logs (Medium Cost):</strong> Give specific error messages, often pointing to a connected service.</li>
+                                <li><strong>Traces (High Cost):</strong> Show the exact path of a request, giving the clearest clue to the failure point.</li>
                             </ul>
                         </li>
-                        <li><strong>Remediate:</strong> Once you think you've found the root cause, select the node and click the "Remediate" button. If you're right, you score points and a new round begins. If you're wrong, you take a big hit to Business Impact!</li>
+                        <li><strong>Remediate:</strong> Once you're confident you've found the root cause, select the node and click "Remediate". A correct guess scores points based on time remaining. A wrong guess significantly raises Business Impact!</li>
                     </ol>
                      <p class="mt-8 text-sm italic text-gray-400 text-center">Created by Dan Bettinger and Gemini</p>
                 </div>
@@ -205,18 +209,18 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- DATA & CONFIG ---
     const SERVICES = {
-        api_gateway: { name: 'API Gateway', x: 50, y: 5, logs: "Receiving high rate of 503 errors from upstream.", connections: ['user_service', 'auth_service'] },
-        user_service: { name: 'User Service', x: 20, y: 35, logs: "Failed to fetch user profiles.", connections: ['database'] },
-        auth_service: { name: 'Auth Service', x: 80, y: 35, logs: "Authentication successful, but token generation failed.", connections: ['cache'] },
-        database: { name: 'Database', x: 20, y: 75, logs: "FATAL: Too many connections.", connections: [] },
-        cache: { name: 'Cache', x: 80, y: 75, logs: "ERROR: Cache memory limit exceeded.", connections: [] }
+        api_gateway: { name: 'API Gateway', x: 50, y: 5, logs: "Receiving high rate of 503 errors from upstream.", connections: ['user_service', 'auth_service'], herringLog: "WARN: High memory usage detected." },
+        user_service: { name: 'User Service', x: 20, y: 35, logs: "Failed to fetch user profiles from 'database'.", connections: ['database'], herringLog: "INFO: User login spike from new marketing campaign." },
+        auth_service: { name: 'Auth Service', x: 80, y: 35, logs: "Authentication successful, but token generation failed. Cannot connect to 'cache'.", connections: ['cache'], herringLog: "DEBUG: Token encryption algorithm updated." },
+        database: { name: 'Database', x: 20, y: 75, logs: "FATAL: Too many connections.", connections: [], herringLog: "INFO: Nightly backup process completed successfully." },
+        cache: { name: 'Cache', x: 80, y: 75, logs: "ERROR: Cache memory limit exceeded.", connections: [], herringLog: "WARN: Eviction policy triggered on multiple keys." }
     };
 
     const ROLES = [
-        { id: 'sre', name: 'SRE', desc: 'Specializes in high-level monitoring.', tools: { METRICS: 3, LOGS: 1, TRACES: 1 } },
-        { id: 'dev', name: 'Developer', desc: 'Specializes in deep-dive debugging.', tools: { METRICS: 1, LOGS: 3, TRACES: 2 } },
-        { id: 'netops', name: 'Network Ops', desc: 'A generalist approach.', tools: { METRICS: 2, LOGS: 2, TRACES: 1 } },
-        { id: 'itdm', name: 'VP of App Dev', desc: 'Can authorize more traces.', tools: { METRICS: 2, LOGS: 1, TRACES: 3 } }
+        { id: 'sre', name: 'SRE', desc: 'Gets more time and cheaper Metrics.', timeAllotment: 70, costs: { METRICS: 5, LOGS: 20, TRACES: 45 } },
+        { id: 'dev', name: 'Developer', desc: 'Excels at deep-dive debugging with cheaper Logs.', timeAllotment: 60, costs: { METRICS: 10, LOGS: 10, TRACES: 45 } },
+        { id: 'netops', name: 'Network Ops', desc: 'A generalist with a balanced toolset.', timeAllotment: 60, costs: { METRICS: 10, LOGS: 20, TRACES: 40 } },
+        { id: 'itdm', name: 'VP of App Dev', desc: 'Can authorize expensive Traces more easily.', timeAllotment: 60, costs: { METRICS: 15, LOGS: 25, TRACES: 30 } }
     ];
 
     // --- DOM ELEMENTS ---
@@ -232,12 +236,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const graphContainer = document.getElementById('system-graph');
     const actionsPanel = document.getElementById('actions-panel');
     const remediateBtn = document.getElementById('remediate-btn');
+    const nextShiftBtn = document.getElementById('next-shift-btn');
     const logPanel = document.getElementById('log-panel');
     const playerRoleDisplay = document.getElementById('player-role-display');
     const rulesBtn = document.getElementById('rules-btn');
     const closeRulesBtn = document.getElementById('close-rules-btn');
     const continueToRolesBtn = document.getElementById('continue-to-roles-btn');
     const restartGameBtn = document.getElementById('restart-game-btn');
+    const timeRemainingEl = document.getElementById('time-remaining');
 
     // --- GAME STATE ---
     let state = {};
@@ -250,9 +256,10 @@ document.addEventListener('DOMContentLoaded', () => {
             businessImpact: 0,
             rootCause: null,
             symptomaticNodes: [],
+            redHerringNode: null,
             selectedTool: null,
             selectedNode: null,
-            toolUses: {},
+            remainingTime: 0,
             gameOver: false
         };
     }
@@ -260,6 +267,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- GAME FLOW ---
     function init() {
         initState();
+        logPanel.innerHTML = ''; // Clear log on new game
+        logMessage('System Initializing...');
         modalContainer.classList.remove('hidden');
         rulesModal.classList.remove('hidden');
         continueToRolesBtn.classList.remove('hidden');
@@ -282,22 +291,30 @@ document.addEventListener('DOMContentLoaded', () => {
         state.round++;
         state.selectedTool = null;
         state.selectedNode = null;
-        state.toolUses = { ...state.playerRole.tools };
+        state.remainingTime = state.playerRole.timeAllotment;
+        logPanel.innerHTML = ''; // Clear log on new round
         
-        // Select a new root cause
         const serviceKeys = Object.keys(SERVICES);
         state.rootCause = serviceKeys[Math.floor(Math.random() * serviceKeys.length)];
         
-        // Determine symptomatic nodes
         state.symptomaticNodes = [];
         Object.keys(SERVICES).forEach(key => {
             if (SERVICES[key].connections.includes(state.rootCause)) {
                 state.symptomaticNodes.push(key);
             }
         });
-        // Ensure there's at least one symptom
         if (state.symptomaticNodes.length === 0 && SERVICES[state.rootCause].connections.length > 0) {
            state.symptomaticNodes.push(SERVICES[state.rootCause].connections[0]);
+        }
+        
+        // Add a red herring with 33% chance
+        state.redHerringNode = null;
+        if (Math.random() < 0.33) {
+            const potentialHerrings = serviceKeys.filter(k => k !== state.rootCause && !state.symptomaticNodes.includes(k));
+            if (potentialHerrings.length > 0) {
+                state.redHerringNode = potentialHerrings[Math.floor(Math.random() * potentialHerrings.length)];
+                state.symptomaticNodes.push(state.redHerringNode);
+            }
         }
         
         logMessage(`--- Round ${state.round}: Anomaly Detected! ---`, 'text-yellow-400');
@@ -319,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         roundCounter.textContent = state.round;
         scoreCounter.textContent = state.score;
         impactBar.style.width = `${state.businessImpact}%`;
+        timeRemainingEl.textContent = state.remainingTime;
     }
 
     function renderPlayerRole() {
@@ -330,7 +348,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderGraph() {
         graphContainer.innerHTML = '';
-        // Draw lines first
         Object.keys(SERVICES).forEach(key => {
             const service = SERVICES[key];
             service.connections.forEach(connKey => {
@@ -338,12 +355,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 drawLine(service, connService);
             });
         });
-        // Draw nodes
         Object.keys(SERVICES).forEach(key => {
             const service = SERVICES[key];
             const nodeEl = document.createElement('div');
             
-            // Build class list as an array to prevent errors
             const classes = ['service-node'];
             if (state.symptomaticNodes.includes(key)) {
                 classes.push('status-symptom');
@@ -366,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function drawLine(fromService, toService) {
-        const fromEl = { x: fromService.x + 6, y: fromService.y + 4 }; // Center of node approx
+        const fromEl = { x: fromService.x + 6, y: fromService.y + 4 };
         const toEl = { x: toService.x + 6, y: toService.y + 4 };
         
         const graphRect = graphContainer.getBoundingClientRect();
@@ -391,18 +406,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderActions() {
         actionsPanel.innerHTML = '';
-        Object.keys(state.toolUses).forEach(tool => {
+        const costs = state.playerRole.costs;
+        Object.keys(costs).forEach(tool => {
             const btn = document.createElement('button');
-            btn.className = 'btn-tool w-full p-3 rounded-lg bg-gray-600 hover:bg-gray-500 font-bold';
+            btn.className = 'btn-tool w-full p-3 rounded-lg bg-gray-600 hover:bg-gray-500 font-bold flex justify-between items-center';
             if (state.selectedTool === tool) {
                 btn.classList.add('selected');
             }
-            btn.textContent = `${tool} (${state.toolUses[tool]})`;
+            btn.innerHTML = `<span>${tool}</span> <span class="font-mono text-sm bg-gray-800 px-2 py-1 rounded">${costs[tool]} min</span>`;
             btn.dataset.tool = tool;
-            btn.disabled = state.toolUses[tool] <= 0;
+            btn.disabled = state.remainingTime < costs[tool];
             btn.addEventListener('click', () => onToolClick(tool));
             actionsPanel.appendChild(btn);
         });
+        
+        if (state.remainingTime <= 0) {
+            nextShiftBtn.classList.remove('hidden');
+        } else {
+            nextShiftBtn.classList.add('hidden');
+        }
     }
     
     function logMessage(message, style = 'text-gray-300') {
@@ -422,7 +444,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onNodeClick(nodeId) {
         state.selectedNode = nodeId;
-        if (state.selectedTool && state.toolUses[state.selectedTool] > 0) {
+        const toolCost = state.playerRole.costs[state.selectedTool];
+        if (state.selectedTool && state.remainingTime >= toolCost) {
             useTool(state.selectedTool, nodeId);
         } else {
             logMessage(`Selected service: ${SERVICES[nodeId].name}. Choose a tool to investigate.`);
@@ -431,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function useTool(tool, nodeId) {
-        state.toolUses[tool]--;
+        state.remainingTime -= state.playerRole.costs[tool];
         const service = SERVICES[nodeId];
         let message = '';
 
@@ -444,7 +467,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 message = `METRICS for ${service.name}: Latency ${latency}ms, Error Rate ${errors}%.`;
                 break;
             case 'LOGS':
-                if (state.symptomaticNodes.includes(nodeId) || state.rootCause === nodeId) {
+                if (nodeId === state.redHerringNode) {
+                    message = `LOGS for ${service.name}: ${service.herringLog}`;
+                } else if (state.symptomaticNodes.includes(nodeId) || state.rootCause === nodeId) {
                     message = `LOGS for ${service.name}: ${service.logs}`;
                 } else {
                     message = `LOGS for ${service.name}: System nominal. No errors reported.`;
@@ -467,8 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
         while(currentNodeKey !== state.rootCause && depth < 5) {
             const connections = SERVICES[currentNodeKey].connections;
             if (connections.length === 0) break;
-            // Simple trace logic: just follows the first connection path
-            const nextNode = connections.find(c => state.symptomaticNodes.includes(c) || c === state.rootCause) || connections[0];
+            const nextNode = connections.find(c => state.symptomaticNodes.includes(c) && c !== state.redHerringNode || c === state.rootCause) || connections[0];
             path.push(nextNode);
             currentNodeKey = nextNode;
             depth++;
@@ -500,36 +524,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.selectedNode) return;
         
         if (state.selectedNode === state.rootCause) {
-            const points = 100 - (Object.values(state.toolUses).reduce((a, b) => a + b, 0) * 10);
+            const points = state.remainingTime * 2;
             state.score += points;
             logMessage(`SUCCESS! ${SERVICES[state.rootCause].name} was the root cause. +${points} points.`, 'text-green-400');
             document.querySelector(`[data-id="${state.rootCause}"]`).classList.add('status-error', 'status-revealed');
             setTimeout(startNewRound, 2000);
         } else {
-            state.businessImpact += 25;
+            state.businessImpact = Math.min(100, state.businessImpact + 25);
             logMessage(`FAILURE! ${SERVICES[state.selectedNode].name} was not the root cause. Major business impact!`, 'text-red-400');
             if (state.businessImpact >= 100) {
-                gameOver(false);
+                gameOver();
             }
         }
         renderAll();
     }
     
-    function gameOver(isWin) {
+    function gameOver() {
         state.gameOver = true;
         modalContainer.classList.remove('hidden');
         gameOverModal.classList.remove('hidden');
         
-        const titleEl = document.getElementById('game-over-title');
-        const msgEl = document.getElementById('game-over-message');
-        
-        if (isWin) { // This condition is currently not reachable, but good for future extension
-             titleEl.textContent = "System Stabilized!";
-             msgEl.textContent = "You've managed to keep the system afloat!";
-        } else {
-             titleEl.textContent = "Critical Impact!";
-             msgEl.textContent = `The system went down after ${state.round} rounds. Your investigation took too long.`;
-        }
+        document.getElementById('game-over-title').textContent = "Critical Impact!";
+        document.getElementById('game-over-message').textContent = `The system went down after ${state.round} rounds. Your investigation took too long.`;
         document.getElementById('final-score').textContent = state.score;
     }
 
@@ -557,6 +573,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     remediateBtn.addEventListener('click', remediate);
+    nextShiftBtn.addEventListener('click', () => {
+        logMessage("Time ran out. Waiting for the next shift increases business impact.", "text-yellow-400");
+        state.businessImpact = Math.min(100, state.businessImpact + 20);
+        state.remainingTime = state.playerRole.timeAllotment;
+        if (state.businessImpact >= 100) {
+            gameOver();
+        }
+        renderAll();
+    });
     restartGameBtn.addEventListener('click', init);
     rulesBtn.addEventListener('click', () => {
         modalContainer.classList.remove('hidden');
